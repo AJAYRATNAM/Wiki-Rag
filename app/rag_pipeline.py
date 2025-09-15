@@ -10,7 +10,7 @@ from sentence_transformers import CrossEncoder
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import WebBaseLoader
 import config
-
+from langchain_core.runnables import RunnablePassthrough
 
 # --- Model configs ---
 EMBEDDING_MODEL = config.EMBEDDING_MODEL
@@ -23,7 +23,7 @@ TOP_K = config.TOP_K
 # --- LLM + prompt setup ---
 template = """
 You are a QA assistant.
-Answer only using the provided context.
+Rephrase the Answer only using the provided context.
 if context is irrelevant to question, reply "I don't know".
 If multiple numbers or facts are present, prefer the most recent one.
 
@@ -39,7 +39,7 @@ Answer:
 
 
 
-prompt_template = PromptTemplate(template=template, input_variables=["context", "question"])
+prompt = PromptTemplate(template=template, input_variables=["context", "question"])
 generator = pipeline("text2text-generation", model=LLM_MODEL, max_length=1024, truncation=True)
 llm = HuggingFacePipeline(pipeline=generator)
 reranker = CrossEncoder(RERANKER_MODEL)
@@ -133,8 +133,11 @@ def query_dynamic_rag(url, query, top_k=TOP_K):
 
     # 5. Query LLM
     context = format_docs(final_docs)
-    output = llm.run({"context": context, "question": query})
-    
-    return StrOutputParser().parse(output)
-
-
+    rag_pipeline = (
+    {"context": lambda q: format_docs(multi_query_retriever(query, retriever,paraphraser,text_chunks,top_k)), "question": RunnablePassthrough()}
+    | prompt
+    | llm
+    | StrOutputParser()
+)
+    answer= rag_pipeline.invoke(query)
+    return answer
